@@ -92,16 +92,34 @@ async def ws_endpoint(websocket: WebSocket, code: str):
     room["players"].append({"name": name, "symbol": symbol})
     # send waiting/ready
     if len(room["sockets"]) == 1:
-        await send_safe(websocket, {"type":"waiting","your_symbol": symbol, "board": room["board"], "turn": room["turn"], "opponent": None})
+        await send_safe(websocket, {
+            "type": "waiting",
+            "your_symbol": symbol,
+            "board": room["board"],
+            "turn": room["turn"],
+            "opponent": None
+        })
     else:
         # both connected -> notify both with assignment
         p0 = room["players"][0]
         p1 = room["players"][1]
         room["state"] = "playing"
         # inform player 0
-        await send_safe(room["sockets"][0], {"type":"ready","your_symbol": p0["symbol"], "opponent": p1["name"], "board": room["board"], "turn": room["turn"]})
+        await send_safe(room["sockets"][0], {
+            "type":"ready",
+            "your_symbol": p0["symbol"],
+            "opponent": p1["name"],
+            "board": room["board"],
+            "turn": room["turn"]
+        })
         # inform player 1
-        await send_safe(room["sockets"][1], {"type":"ready","your_symbol": p1["symbol"], "opponent": p0["name"], "board": room["board"], "turn": room["turn"]})
+        await send_safe(room["sockets"][1], {
+            "type":"ready",
+            "your_symbol": p1["symbol"],
+            "opponent": p0["name"],
+            "board": room["board"],
+            "turn": room["turn"]
+        })
 
     try:
         while True:
@@ -111,55 +129,93 @@ async def ws_endpoint(websocket: WebSocket, code: str):
             except:
                 continue
             typ = data.get('type')
-            if typ == 'join':
-                # already handled by websocket query param; nothing extra
-                continue
+
             if typ == 'move':
                 idx = int(data.get('index', -1))
                 if idx < 0 or idx > 8:
                     await send_safe(websocket, {"type":"error","msg":"Неверный индекс"})
                     continue
-                # who is sender?
+                # кто ходит
                 if websocket not in room["sockets"]:
                     continue
                 sender_idx = room["sockets"].index(websocket)
                 sender_symbol = room["players"][sender_idx]["symbol"]
-                # check turn
+                # проверка очереди
                 if room["turn"] != sender_symbol:
                     await send_safe(websocket, {"type":"error","msg":"Не ваш ход"})
                     continue
                 if room["board"][idx] != '':
                     await send_safe(websocket, {"type":"error","msg":"Клетка занята"})
                     continue
-                # apply move
+                # применяем ход
                 room["board"][idx] = sender_symbol
-                # check win/draw
+                # проверка конца
                 w = check_win(room["board"])
                 if w == 'D':
                     room["state"] = "finished"
-                    await broadcast_room(room, {"type":"state","board":room["board"], "turn": room["turn"], "winner":"D"})
+                    await broadcast_room(room, {
+                        "type":"state",
+                        "board": room["board"],
+                        "turn": room["turn"],
+                        "winner": "D"
+                    })
                 elif w in ('X','O'):
                     room["state"] = "finished"
-                    await broadcast_room(room, {"type":"state","board":room["board"], "turn": room["turn"], "winner": w})
+                    await broadcast_room(room, {
+                        "type":"state",
+                        "board": room["board"],
+                        "turn": room["turn"],
+                        "winner": w
+                    })
                 else:
-                    # switch turn
                     room["turn"] = 'O' if room["turn"] == 'X' else 'X'
-                    await broadcast_room(room, {"type":"state","board":room["board"], "turn": room["turn"], "winner": None})
-            # ignore other types
+                    await broadcast_room(room, {
+                        "type":"state",
+                        "board": room["board"],
+                        "turn": room["turn"],
+                        "winner": None
+                    })
+
+            elif typ == "rematch":
+                if room["state"] != "finished":
+                    await send_safe(websocket, {"type":"error","msg":"Игра ещё не закончена"})
+                    continue
+
+                if "rematch_votes" not in room:
+                    room["rematch_votes"] = set()
+                room["rematch_votes"].add(websocket)
+
+                # если оба согласились
+                if len(room["rematch_votes"]) == 2:
+                    room["board"] = ['']*9
+                    room["turn"] = "X"
+                    room["state"] = "playing"
+                    room.pop("rematch_votes")
+
+                    p0 = room["players"][0]
+                    p1 = room["players"][1]
+                    await send_safe(room["sockets"][0], {
+                        "type":"rematch_start",
+                        "your_symbol": p0["symbol"],
+                        "opponent": p1["name"],
+                        "board": room["board"],
+                        "turn": room["turn"]
+                    })
+                    await send_safe(room["sockets"][1], {
+                        "type":"rematch_start",
+                        "your_symbol": p1["symbol"],
+                        "opponent": p0["name"],
+                        "board": room["board"],
+                        "turn": room["turn"]
+                    })
+
     except WebSocketDisconnect:
-        # remove socket and notify other
         if websocket in room["sockets"]:
             idx = room["sockets"].index(websocket)
             room["sockets"].pop(idx)
             left_player = room["players"].pop(idx)
-            # notify remaining
             if room["sockets"]:
-                await send_safe(room["sockets"][0], {"type":"opponent_left","msg":f"{left_player['name']} покинул игру"})
-        # optionally cleanup empty rooms after some time
-    except Exception as e:
-        print("WS error:", e)
-        # ensure cleanup
-        if websocket in room["sockets"]:
-            idx = room["sockets"].index(websocket)
-            room["sockets"].pop(idx)
-            room["players"].pop(idx)
+                await send_safe(room["sockets"][0], {
+                    "type":"opponent_left",
+                    "msg":f"{left_player['name']} покинул игру"
+                })
