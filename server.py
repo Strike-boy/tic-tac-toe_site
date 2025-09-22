@@ -236,7 +236,7 @@ async def ws_endpoint(websocket: WebSocket, code: str):
                         "message": f"Ход переходит к {room['turn']}"
                     })
 
-            elif typ == "rematch":
+elif typ == "rematch":
     # Разрешаем реванш если игра завершена ИЛИ если противник вышел
     if room["state"] not in ["finished", "playing"]:
         await send_safe(websocket, {"type":"error","msg":"Игра ещё не закончена"})
