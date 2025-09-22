@@ -237,42 +237,42 @@ async def ws_endpoint(websocket: WebSocket, code: str):
                     })
 
             elif typ == "rematch":
-                if room["state"] != "finished":
-                    await send_safe(websocket, {"type":"error","msg":"Игра ещё не закончена"})
-                    continue
+    # Разрешаем реванш если игра завершена ИЛИ если противник вышел
+    if room["state"] not in ["finished", "playing"]:
+        await send_safe(websocket, {"type":"error","msg":"Игра ещё не закончена"})
+        continue
 
-                if "rematch_votes" not in room:
-                    room["rematch_votes"] = set()
-                room["rematch_votes"].add(websocket)
+    # Сбрасываем голоса если это первый голос
+    if "rematch_votes" not in room:
+        room["rematch_votes"] = set()
+    
+    room["rematch_votes"].add(websocket)
 
-                # Уведомляем о голосе за реванш
-                sender_idx = room["sockets"].index(websocket)
-                sender_name = room["players"][sender_idx]["name"]
-                await broadcast_room(room, {
-                    "type": "rematch_vote",
-                    "player_name": sender_name,
-                    "votes": len(room["rematch_votes"]),
-                    "total_players": len(room["sockets"])
-                })
+    # Уведомляем о голосе
+    sender_idx = room["sockets"].index(websocket)
+    sender_name = room["players"][sender_idx]["name"]
+    await broadcast_room(room, {
+        "type": "rematch_vote",
+        "player_name": sender_name,
+        "votes": len(room["rematch_votes"]),
+        "total_players": len(room["sockets"])
+    })
 
-                # если оба согласились
-                if len(room["rematch_votes"]) == 2:
-                    room["board"] = ['']*9
-                    room["turn"] = "X"
-                    room["state"] = "playing"
-                    room["rematch_votes"] = set()
+    # Если все игроки согласны
+    if len(room["rematch_votes"]) == len(room["sockets"]):
+        # Полный сброс игры
+        room["board"] = ['']*9
+        room["turn"] = "X"
+        room["state"] = "playing"
+        room["rematch_votes"] = set()
 
-                    p0 = room["players"][0]
-                    p1 = room["players"][1]
-                    
-                    await broadcast_room(room, {
-                        "type":"rematch_start",
-                        "your_symbol": p0["symbol"],
-                        "opponent": p1["name"],
-                        "board": room["board"],
-                        "turn": room["turn"],
-                        "message": "Реванш начинается!"
-                    })
+        # Уведомляем всех
+        await broadcast_room(room, {
+            "type": "rematch_start",
+            "board": room["board"],
+            "turn": room["turn"],
+            "message": "Реванш начинается!"
+        })
 
             elif typ == "chat":
                 # Обработка чата
