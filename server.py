@@ -3,6 +3,7 @@ import secrets
 import string
 import asyncio
 import json
+import subprocess
 import threading
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -44,7 +45,7 @@ async def create_room(req: Request):
 
 @app.get("/")
 async def root():
-    return {"message": "Tic-Tac-Toe Server is running", "status": "online"}
+    return {"message": "Tic-Tac-Toe Server + Bot is running", "status": "online"}
 
 @app.get("/health")
 async def health_check():
@@ -166,19 +167,20 @@ async def ws_endpoint(websocket: WebSocket, code: str):
             room["players"] = [p for p in room["players"] if p["name"] != name]
 
 def run_bot():
-    """Запуск Telegram бота в отдельном потоке"""
+    """Запуск Telegram бота"""
     try:
-        from bot import main as bot_main
-        bot_main()
+        from bot import main
+        main()
     except Exception as e:
         print(f"Бот не запущен: {e}")
 
-# Запускаем бота в отдельном потоке при старте сервера
+# Запускаем бота в отдельном потоке
 @app.on_event("startup")
 async def startup_event():
+    print("🚀 Запускаем Tic-Tac-Toe сервер...")
     bot_thread = threading.Thread(target=run_bot, daemon=True)
     bot_thread.start()
-    print("Сервер запущен! Бот запускается...")
+    print("✅ Сервер запущен! Бот запускается в фоне...")
 
 if __name__ == "__main__":
     import uvicorn
