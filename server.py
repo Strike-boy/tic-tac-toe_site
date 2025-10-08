@@ -1,5 +1,9 @@
-# server.py
-import time, secrets, string, asyncio, json
+import time
+import secrets
+import string
+import asyncio
+import json
+import threading
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -37,6 +41,14 @@ async def create_room(req: Request):
         "messages": []
     }
     return {"code": code}
+
+@app.get("/")
+async def root():
+    return {"message": "Tic-Tac-Toe Server is running", "status": "online"}
+
+@app.get("/health")
+async def health_check():
+    return {"status": "healthy", "active_rooms": len(games)}
 
 async def send_safe(ws, payload):
     try:
@@ -149,8 +161,24 @@ async def ws_endpoint(websocket: WebSocket, code: str):
                 })
                 
     except WebSocketDisconnect:
-        room["sockets"].remove(websocket)
-        room["players"] = [p for p in room["players"] if p["name"] != name]
+        if websocket in room["sockets"]:
+            room["sockets"].remove(websocket)
+            room["players"] = [p for p in room["players"] if p["name"] != name]
+
+def run_bot():
+    """Запуск Telegram бота в отдельном потоке"""
+    try:
+        from bot import main as bot_main
+        bot_main()
+    except Exception as e:
+        print(f"Бот не запущен: {e}")
+
+# Запускаем бота в отдельном потоке при старте сервера
+@app.on_event("startup")
+async def startup_event():
+    bot_thread = threading.Thread(target=run_bot, daemon=True)
+    bot_thread.start()
+    print("Сервер запущен! Бот запускается...")
 
 if __name__ == "__main__":
     import uvicorn
